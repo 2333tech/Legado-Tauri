@@ -38,14 +38,14 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-pc-windows-gnu
+          targets: x86_64-pc-windows-msvc
 
       - name: Create cargo config for NDK linker
         run: |
           mkdir -p ~/.cargo
           cat > ~/.cargo/config.toml << 'TOML'
-          [target.x86_64-pc-windows-gnu]
-          linker = "x86_64-pc-windows-gnu"
+          [target.x86_64-pc-windows-msvc]
+          linker = "x86_64-pc-windows-msvc"
           TOML
           echo "--- ~/.cargo/config.toml ---"
           cat ~/.cargo/config.toml
