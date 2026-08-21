@@ -1,15 +1,101 @@
+name: Build Windows App (Native)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  NODE_VERSION: '24'
+  PNPM_VERSION: '9'
+
+jobs:
+  build-windows:
+    name: Build Windows (x86_64)
     runs-on: windows-latest
+    timeout-minutes: 45
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: '24' }
-      - uses: pnpm/action-setup@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with: { targets: 'x86_64-pc-windows-msvc' }
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm tauri build --bundles nsis,msi
-      - uses: actions/upload-artifact@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          name: windows-app
-          path: src-tauri/target/release/bundle/*
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install pnpm dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm build
+        env:
+          CI: false
+
+      - name: Build Tauri app
+        run: pnpm tauri build --bundles nsis,msi
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p release-artifacts
+          # 复制主程序
+          find src-tauri/target/release -maxdepth 1 -name "*.exe" -exec cp {} release-artifacts/ \;
+          # 复制安装包
+          find src-tauri/target/release/bundle -type f \( -name "*.msi" -o -name "*.exe" \) -exec cp {} release-artifacts/ \;
+          # 生成校验和
+          cd release-artifacts
+          sha256sum * > SHA256SUMS.txt
+          ls -la
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-app-${{ github.sha }}
+          path: release-artifacts/*
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Summary
+        shell: bash
+        run: |
+          echo "## Windows Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "**Runner:** windows-latest" >> $GITHUB_STEP_SUMMARY
+          if [ -d release-artifacts ]; then
+            echo "### Artifacts:" >> $GITHUB_STEP_SUMMARY
+            find release-artifacts -maxdepth 1 -type f -exec basename {} \; | while read f; do
+              size=$(stat -c%s "release-artifacts/$f")
+              size_mb=$(echo "scale=1; $size/1024/1024" | bc)
+              echo "- \`$f\` (${size_mb} MB)" >> $GITHUB_STEP_SUMMARY
+            done
+          else
+            echo "❌ No artifacts found" >> $GITHUB_STEP_SUMMARY
+          fi
