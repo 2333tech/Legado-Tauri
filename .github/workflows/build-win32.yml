@@ -1,57 +1,15 @@
-name: Build Windows Release
-
-on:
-  push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
-  workflow_dispatch:
-
-env:
-  CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
-
-jobs:
-  build-apk:
-    name: Build Win32 (aarch64)
-    runs-on: ubuntu-22.04
-    timeout-minutes: 45
-
+    runs-on: windows-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24' }
+      - uses: pnpm/action-setup@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: 'x86_64-pc-windows-msvc' }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm tauri build --bundles nsis,msi
+      - uses: actions/upload-artifact@v4
         with:
-          node-version: 24
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup JDK 21
-        uses: actions/setup-java@v4
-        with:
-          java-version: "21"
-          distribution: "temurin"
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-
-      - name: Create cargo config for NDK linker
-        run: |
-          mkdir -p ~/.cargo
-          cat > ~/.cargo/config.toml << 'TOML'
-          [target.x86_64-pc-windows-msvc]
-          linker = "x86_64-pc-windows-msvc"
-          TOML
-          echo "--- ~/.cargo/config.toml ---"
-          cat ~/.cargo/config.toml
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build frontend
-        run: pnpm run build:windows:release
+          name: windows-app
+          path: src-tauri/target/release/bundle/*
